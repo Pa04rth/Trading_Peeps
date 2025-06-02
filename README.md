@@ -2,8 +2,6 @@
 
 > Advanced stock analysis and bulk deals tracking platform built with Next.js and Flask
 
-![TradePeeps Banner](public/banner.png)
-
 ## Features 🚀
 
 - Real-time stock volume analysis
