@@ -76,6 +76,12 @@ const Hero = () => {
             variant="outline"
             size="lg"
             className="border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white text-lg px-8 py-3 h-auto font-medium transition-all duration-200 hover:scale-105"
+            onClick={() =>
+              window.open(
+                "https://github.com/Pa04rth/Trading_Peeps#readme",
+                "_blank"
+              )
+            }
           >
             Documentation
           </Button>
