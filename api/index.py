@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import csv
 import os
-from nsepython import *
-from werkzeug.serving import WSGIRequestHandler
+from nsepython import nse_largedeals_historical
+
 import traceback
 
 
@@ -90,42 +90,127 @@ def tradedVolumeExceedingCertainPercentage(symbols_data, percentage=0.01, from_d
         print(f"Error fetching historical data: {e}")
     return analysis   
 
-def tradedVolumePerDayBatch(symbols_data, percentage=0.01, from_date_str=None, to_date_str=None):
-    import yfinance as yf
-    import pandas as pd
+# def tradedVolumePerDayBatch(symbols_data, percentage=0.01, from_date_str=None, to_date_str=None):
 
+#     # Prepare symbol list
+#     symbols = [entry['symbol'] for entry in symbols_data]
+#     # Download all data at once
+#     data = yf.download(
+#         tickers=symbols,
+#         start=from_date_str,
+#         end=(datetime.strptime(to_date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"),  # yfinance end is exclusive
+#         group_by='ticker',
+#         auto_adjust=True,
+#         threads=True
+#     )
+
+#     # Prepare a lookup for company names
+#     symbol_to_company = {entry['symbol']: entry['company_name'] for entry in symbols_data}
+#     results = []
+
+#     # If only one symbol, yfinance returns a single-level DataFrame
+#     if isinstance(data.columns, pd.MultiIndex):
+#         for symbol in symbols:
+#             if symbol not in data.columns.get_level_values(0):
+#                 continue
+#             symbol_df = data[symbol].copy()
+#             symbol_df = symbol_df.reset_index()
+#             for _, row in symbol_df.iterrows():
+#                 date_str = row['Date'].strftime('%Y-%m-%d')
+#                 volume = row['Volume']
+#                 if pd.isna(volume) or volume == 0:
+#                     continue
+#                 ticker = yf.Ticker(symbol)
+#                 outstanding_shares = ticker.fast_info.get('sharesOutstanding')
+#                 if not outstanding_shares:
+#                     continue
+#                 trading_volume_percentage = (volume / outstanding_shares) * 100
+#                 a = volume - int(outstanding_shares * percentage)
+#                 qualified = volume >= (outstanding_shares * percentage)
+#                 results.append({
+#                     'date': date_str,
+#                     'symbol': symbol,
+#                     'company_name': symbol_to_company.get(symbol, ''),
+#                     'total_volume': volume,
+#                     'outstanding_shares': outstanding_shares,
+#                     'qualified_percentage_criteria': a,
+#                     'qualified': qualified
+#                 })
+#     else:
+#         # Single symbol, single-level columns
+#         symbol = symbols[0]
+#         symbol_df = data.reset_index()
+#         for _, row in symbol_df.iterrows():
+#             date_str = row['Date'].strftime('%Y-%m-%d')
+#             volume = row['Volume']
+#             if pd.isna(volume) or volume == 0:
+#                 continue
+#             ticker = yf.Ticker(symbol)
+#             outstanding_shares = ticker.fast_info.get('sharesOutstanding')
+#             if not outstanding_shares:
+#                 continue
+#             trading_volume_percentage = (volume / outstanding_shares) * 100
+#             qualified = trading_volume_percentage >= percentage
+#             results.append({
+#                 'date': date_str,
+#                 'symbol': symbol,
+#                 'company_name': symbol_to_company.get(symbol, ''),
+#                 'total_volume': volume,
+#                 'outstanding_shares': outstanding_shares,
+#                 'volume_percentage': trading_volume_percentage,
+#                 'qualified': qualified
+#             })
+#     return results    
+
+
+
+def tradedVolumePerDayBatch(symbols_data, percentage=0.01, from_date_str=None, to_date_str=None):
     # Prepare symbol list
     symbols = [entry['symbol'] for entry in symbols_data]
-    # Download all data at once
+
+    # Download historical price & volume data once for all symbols
     data = yf.download(
         tickers=symbols,
         start=from_date_str,
-        end=(datetime.datetime.strptime(to_date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"),  # yfinance end is exclusive
+        end=(datetime.strptime(to_date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"),
         group_by='ticker',
         auto_adjust=True,
         threads=True
     )
 
-    # Prepare a lookup for company names
+    # Prepare lookup for company names
     symbol_to_company = {entry['symbol']: entry['company_name'] for entry in symbols_data}
+
+    # Fetch outstanding shares once per symbol (use fast_info for speed)
+    outstanding_shares_map = {}
+    for symbol in symbols:
+        try:
+            ticker = yf.Ticker(symbol)
+            outstanding = ticker.fast_info.get('sharesOutstanding')
+            # fallback if fast_info is empty
+            if not outstanding:
+                outstanding = ticker.info.get('sharesOutstanding', None)
+            outstanding_shares_map[symbol] = outstanding
+        except Exception as e:
+            print(f"Failed to fetch sharesOutstanding for {symbol}: {e}")
+            outstanding_shares_map[symbol] = None
+
     results = []
 
-    # If only one symbol, yfinance returns a single-level DataFrame
+    # Check if multiple symbols (multi-index) or single symbol (single-index)
     if isinstance(data.columns, pd.MultiIndex):
         for symbol in symbols:
             if symbol not in data.columns.get_level_values(0):
                 continue
-            symbol_df = data[symbol].copy()
-            symbol_df = symbol_df.reset_index()
+            symbol_df = data[symbol].reset_index()
+            outstanding_shares = outstanding_shares_map.get(symbol)
+            if not outstanding_shares:
+                continue
             for _, row in symbol_df.iterrows():
-                date_str = row['Date'].strftime('%Y-%m-%d')
                 volume = row['Volume']
                 if pd.isna(volume) or volume == 0:
                     continue
-                ticker = yf.Ticker(symbol)
-                outstanding_shares = ticker.info.get('sharesOutstanding')
-                if not outstanding_shares:
-                    continue
+                date_str = row['Date'].strftime('%Y-%m-%d')
                 trading_volume_percentage = (volume / outstanding_shares) * 100
                 a = volume - int(outstanding_shares * percentage)
                 qualified = volume >= (outstanding_shares * percentage)
@@ -139,30 +224,30 @@ def tradedVolumePerDayBatch(symbols_data, percentage=0.01, from_date_str=None, t
                     'qualified': qualified
                 })
     else:
-        # Single symbol, single-level columns
+        # Single symbol case
         symbol = symbols[0]
         symbol_df = data.reset_index()
-        for _, row in symbol_df.iterrows():
-            date_str = row['Date'].strftime('%Y-%m-%d')
-            volume = row['Volume']
-            if pd.isna(volume) or volume == 0:
-                continue
-            ticker = yf.Ticker(symbol)
-            outstanding_shares = ticker.info.get('sharesOutstanding')
-            if not outstanding_shares:
-                continue
-            trading_volume_percentage = (volume / outstanding_shares) * 100
-            qualified = trading_volume_percentage >= percentage
-            results.append({
-                'date': date_str,
-                'symbol': symbol,
-                'company_name': symbol_to_company.get(symbol, ''),
-                'total_volume': volume,
-                'outstanding_shares': outstanding_shares,
-                'volume_percentage': trading_volume_percentage,
-                'qualified': qualified
-            })
-    return results     
+        outstanding_shares = outstanding_shares_map.get(symbol)
+        if outstanding_shares:
+            for _, row in symbol_df.iterrows():
+                volume = row['Volume']
+                if pd.isna(volume) or volume == 0:
+                    continue
+                date_str = row['Date'].strftime('%Y-%m-%d')
+                trading_volume_percentage = (volume / outstanding_shares) * 100
+                qualified = trading_volume_percentage >= percentage
+                results.append({
+                    'date': date_str,
+                    'symbol': symbol,
+                    'company_name': symbol_to_company.get(symbol, ''),
+                    'total_volume': volume,
+                    'outstanding_shares': outstanding_shares,
+                    'volume_percentage': trading_volume_percentage,
+                    'qualified': qualified
+                })
+
+    return results
+ 
 #Function to fetch bulk deals for a given symbol 
 def bulkDealsFromSymbols(listOfSymbols, from_date_str=None, to_date_str=None):
     try:
@@ -210,7 +295,7 @@ def fetchAllBulkDeals(daysInPast=30):
     print("\n=== Starting fetchAllBulkDeals function ===")
     
     # Get dates in correct format for NSE API
-    end_date = datetime.datetime.now()  # Using datetime directly
+    end_date = datetime.now()  # Using datetime directly
     start_date = end_date - timedelta(days=daysInPast)
     
     from_date_str = start_date.strftime('%d-%m-%Y')  # NSE format: DD-MM-YYYY
@@ -267,9 +352,9 @@ def bulkDealsReport():
         print("\n=== Starting Bulk Deals Report Generation ===")
         
         # Initialize parameters
-        report_period_days = 5
+        report_period_days = 10
         volume_percentage_threshold = 0.01
-        end_date = datetime.datetime.now()
+        end_date = datetime.now()
         start_date = end_date - timedelta(days=report_period_days)
         from_date_str = start_date.strftime('%Y-%m-%d')
         to_date_str = end_date.strftime('%Y-%m-%d')
@@ -314,7 +399,7 @@ def bulkDealsReport():
         print("\n3. Fetching bulk deals for qualified symbols...")
         nse_date_from = start_date.strftime('%d-%m-%Y')  # NSE format
         nse_date_to = end_date.strftime('%d-%m-%Y')      # NSE format
-        
+        print(f"Using NSE date range: {nse_date_from} to {nse_date_to}")
         # Clean symbols before passing to NSE API
         clean_qualified_symbols = clean_symbols_for_nse(qualified_symbols)
         print(f"Original symbols: {qualified_symbols}")
@@ -572,8 +657,7 @@ def bulkDealsReport():
         return render_template_string(f"<h1>Error</h1><p>{str(e)}</p>"), 500
 
 if __name__ == "__main__":
-    # Increase the timeout to 5 minutes (300 seconds)
-    WSGIRequestHandler.protocol_version = "HTTP/1.1"
+    
     app.run(debug=True, threaded=True, timeout=300)
-    app.run(debug=True)
+   
 
