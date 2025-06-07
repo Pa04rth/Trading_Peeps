@@ -1,4 +1,4 @@
-from flask import Flask,jsonify, render_template_string
+from flask import Flask,jsonify, render_template_string , request
 import yfinance as yf
 from datetime import datetime, timedelta
 import pandas as pd
@@ -344,7 +344,6 @@ def fetchAllBulkDeals(daysInPast=30):
     finally:
         print("\n=== Completed fetchAllBulkDeals function ===")
     
-  
 
 @app.route("/api/bulk-deals", methods=["GET"])
 def bulkDealsReport():
@@ -353,7 +352,8 @@ def bulkDealsReport():
         
         # Initialize parameters
         report_period_days = 10
-        volume_percentage_threshold = 0.01
+        volume_percentage_threshold = request.args.get('min-volume', default=1, type=float)
+        volume_percentage_threshold /= 100  # Convert to decimal
         end_date = datetime.now()
         start_date = end_date - timedelta(days=report_period_days)
         from_date_str = start_date.strftime('%Y-%m-%d')
