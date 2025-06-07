@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+
 import {
   Target,
   Eye,
@@ -89,75 +89,6 @@ const AboutUs = () => {
         </div>
       </section>
 
-      {/* Mission & Vision Section */}
-      <section className="py-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
-            <Card className="relative overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-xl border-blue-400 shadow-lg">
-              <div className="absolute top-4 right-4 z-10">
-                <Badge className="bg-blue-400 text-black font-semibold">
-                  <Target className="h-3 w-3 mr-1" />
-                  Mission
-                </Badge>
-              </div>
-
-              <CardHeader className="pb-4">
-                <CardTitle className="text-2xl font-bold text-blue-400">
-                  Our Mission
-                </CardTitle>
-                <CardDescription className="text-muted-foreground text-lg">
-                  Bridging the gap between investors and experts
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent className="space-y-6">
-                <p className="text-foreground leading-relaxed">
-                  To bridge the gap between retail investors and verified
-                  financial experts, providing access to high-quality investment
-                  research and strategies.
-                </p>
-
-                <Button className="w-full bg-blue-400 hover:bg-blue-500 text-black transition-all duration-300">
-                  Learn More About Our Mission
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="relative overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-xl border-green-400 shadow-lg">
-              <div className="absolute top-4 right-4 z-10">
-                <Badge className="bg-green-400 text-black font-semibold">
-                  <Eye className="h-3 w-3 mr-1" />
-                  Vision
-                </Badge>
-              </div>
-
-              <CardHeader className="pb-4">
-                <CardTitle className="text-2xl font-bold text-green-400">
-                  Our Vision
-                </CardTitle>
-                <CardDescription className="text-muted-foreground text-lg">
-                  Leading India's investment platform
-                </CardDescription>
-              </CardHeader>
-
-              <CardContent className="space-y-6">
-                <p className="text-foreground leading-relaxed">
-                  To establish Tradepeeps as India's most trusted platform for
-                  market insights, enabling investors to navigate the stock
-                  market with confidence and expert guidance.
-                </p>
-
-                <Button className="w-full bg-green-400 hover:bg-green-500 text-black transition-all duration-300">
-                  Explore Our Vision
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
       {/* Core Values Section */}
       <section className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -217,38 +148,6 @@ const AboutUs = () => {
                 </Card>
               );
             })}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6">
-            Ready to Start Your
-            <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              {" "}
-              Investment Journey?
-            </span>
-          </h2>
-          <p className="text-xl text-muted-foreground mb-8">
-            Join thousands of investors who trust Tradepeeps for expert market
-            insights and guidance.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button
-              size="lg"
-              className="bg-white text-black hover:bg-gray-200 transition-colors"
-            >
-              Get Started Today
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="border-border hover:bg-secondary"
-            >
-              Contact Our Experts
-            </Button>
           </div>
         </div>
       </section>
