@@ -68,12 +68,15 @@ const Hero = () => {
           className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in"
           style={{ animationDelay: "0.4s" }}
         >
-          <Button
-            size="lg"
-            className="bg-white text-black hover:bg-gray-200 text-lg px-8 py-3 h-auto font-medium transition-all duration-200 hover:scale-105"
-          >
-            Get started
-          </Button>
+          <a href="/bulk-deals">
+            <Button
+              size="lg"
+              className="bg-white text-black hover:bg-gray-200 text-lg px-8 py-3 h-auto font-medium transition-all duration-200 hover:scale-105"
+            >
+              Get started
+            </Button>
+          </a>
+
           <Button
             variant="outline"
             size="lg"

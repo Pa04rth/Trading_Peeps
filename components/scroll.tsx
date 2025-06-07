@@ -18,7 +18,7 @@ export function Scroll() {
         }
       >
         <img
-          src={`/dashboard.png`}
+          src={`/image-1.png`}
           alt="hero"
           height={720}
           width={1400}
