@@ -71,6 +71,8 @@ http://localhost:3000/
 
 #### GET `/api/bulk-deals`
 
+![Postman_Proof](image.png)
+
 Generates comprehensive stock analysis report including:
 
 - Daily volume analysis

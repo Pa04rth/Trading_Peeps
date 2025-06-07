@@ -352,8 +352,8 @@ def bulkDealsReport():
         
         # Initialize parameters
         report_period_days = 10
-        volume_percentage_threshold = request.args.get('min-volume', default=1, type=float)
-        volume_percentage_threshold /= 100  # Convert to decimal
+        volume_percentage_threshold = request.args.get('min-volume', default=1, type=float) / 100
+        
         end_date = datetime.now()
         start_date = end_date - timedelta(days=report_period_days)
         from_date_str = start_date.strftime('%Y-%m-%d')
@@ -363,37 +363,44 @@ def bulkDealsReport():
         print("\n1. Getting symbols from CSV...")
         symbols_data_from_csv_result = getSymbolsFromCSV()
         if isinstance(symbols_data_from_csv_result, tuple):
-            error_message, status_code = symbols_data_from_csv_result
-            return render_template_string(f"<h1>Error:</h1><p>{error_message}</p>"), status_code
+            return jsonify({"success": False, "error": symbols_data_from_csv_result[0]}), symbols_data_from_csv_result[1]
+        if not symbols_data_from_csv_result:
+            return jsonify({"success": False, "error": "No symbols found in CSV"}), 400
 
-        symbols_data_from_csv = symbols_data_from_csv_result
-        if not symbols_data_from_csv:
-            return render_template_string("<h1>No Symbols Found</h1><p>The CSV file did not provide any symbols.</p>")
+        # symbols_data_from_csv = symbols_data_from_csv_result
+        # if not symbols_data_from_csv:
+        #     return render_template_string("<h1>No Symbols Found</h1><p>The CSV file did not provide any symbols.</p>")
 
-        print(f"Found {len(symbols_data_from_csv)} symbols in CSV")
+        # print(f"Found {len(symbols_data_from_csv)} symbols in CSV")
 
         # Step 2: Get qualified symbols
         print("\n2. Analyzing trading volumes to find qualified symbols...")
         per_day_analysis = tradedVolumePerDayBatch(
-            symbols_data_from_csv,
+            symbols_data_from_csv_result,
             percentage=volume_percentage_threshold,
             from_date_str=from_date_str,
             to_date_str=to_date_str
         )
 
-        qualified_per_day = [data for data in per_day_analysis if data['qualified']]
-        qualified_symbols = list(set(data['symbol'] for data in qualified_per_day))
+        # qualified_per_day = [data for data in per_day_analysis if data['qualified']]
+        # qualified_symbols = list(set(data['symbol'] for data in qualified_per_day))
+        qualified_symbols = list({
+            data['symbol'] for data in per_day_analysis if data.get('qualified')
+        })
+
+        if not qualified_symbols:
+            return jsonify({"success": False, "error": "No qualified symbols"}), 204
         
         print(f"Found {len(qualified_symbols)} qualified symbols")
         
         # Step 3: First fetch all bulk deals for the period
-        print("\n3a. Fetching all bulk deals for the period...")
-        all_bulk_deals_in_period = fetchAllBulkDeals(report_period_days)
-        if not all_bulk_deals_in_period:
-            print("No bulk deals found in the specified period")
-            all_bulk_deals = []
-        else:
-            print(f"Found {len(all_bulk_deals_in_period)} total bulk deals in the period")
+        # print("\n3a. Fetching all bulk deals for the period...")
+        # all_bulk_deals_in_period = fetchAllBulkDeals(report_period_days)
+        # if not all_bulk_deals_in_period:
+        #     print("No bulk deals found in the specified period")
+        #     all_bulk_deals = []
+        # else:
+        #     print(f"Found {len(all_bulk_deals_in_period)} total bulk deals in the period")
 
         # Step 3: Get bulk deals only for qualified symbols
         print("\n3. Fetching bulk deals for qualified symbols...")
@@ -412,249 +419,290 @@ def bulkDealsReport():
         )
         
         print(f"Found {len(all_bulk_deals)} bulk deals")
-
-        # Step 4: Generate HTML Report
-        print("\n4. Generating HTML report...")
-        report_html = "<h1>Comprehensive Stock Report</h1>"
-        report_html += f"<h3>Analysis Period: {from_date_str} to {to_date_str}</h3>"
-
-        # Show Volume Analysis Table First
-        report_html += "<h2>1. Daily Volume Analysis:</h2>"
-        if per_day_analysis:
-            report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
-            report_html += """
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Symbol</th>
-                        <th>Company Name</th>
-                        <th>Total Volume</th>
-                        <th>Outstanding Shares</th>
-                        <th>Required Volume Difference</th>
-                        <th>Qualified</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            # Sort by date and symbol
-            sorted_analysis = sorted(per_day_analysis, key=lambda x: (x['date'], x['symbol']))
+        def calc_volume_percentage(deal):
+            """Calculate volume percentage of the deal based on outstanding shares"""
+            try:
+                outstanding_shares = deal.get('BD_OUTSTANDING_SHARES', 0)
+                if outstanding_shares > 0:
+                    return (deal.get('BD_QTY_TRD', 0) / outstanding_shares) * 100
+                else:
+                    return 0.0
+            except Exception as e:
+                print(f"Error calculating volume percentage: {e}")
+                return 0.0
+        def check_hft(deal):
+            """Check if the deal is HFT filtered based on remarks"""
+            try:
+                remarks = deal.get('BD_REMARKS', '')
+                return 'HFT' in remarks.upper() or 'HIGH FREQUENCY' in remarks.upper()
+            except Exception as e:
+                print(f"Error checking HFT: {e}")
+                return False
             
-            for analysis in sorted_analysis:
-                qualified_status = "✅" if analysis['qualified'] else "❌"
-                report_html += f"""
-                    <tr>
-                        <td>{analysis['date']}</td>
-                        <td>{analysis['symbol']}</td>
-                        <td>{analysis['company_name']}</td>
-                        <td>{analysis['total_volume']:,}</td>
-                        <td>{analysis['outstanding_shares']:,}</td>
-                        <td>{analysis['qualified_percentage_criteria']:,}</td>
-                        <td>{qualified_status}</td>
-                    </tr>
-                """
-            report_html += "</tbody></table>"
-        else:
-            report_html += "<p>No volume analysis data available.</p>"
+        result=[]
+        for deal in all_bulk_deals:
+            result.append({
+                'symbol': deal.get('BD_SYMBOL', 'N/A'),
+                'deal_date': deal.get('BD_DT_DATE', 'N/A'),
+                'deal_volume': deal.get('BD_QTY_TRD', 0),
+                "volume_percentage": calc_volume_percentage(deal),
+                'buyer': deal.get('BD_CLIENT_NAME', 'N/A'),
+                "is_hft_filtered": check_hft(deal),
+                'buy_sell': deal.get('BD_BUY_SELL', 'N/A'),
+                'company_name': deal.get('BD_SCRIP_NAME', 'N/A'),
+                'price': deal.get('BD_TP_WATP', 0.0),
+                'remarks': deal.get('BD_REMARKS', '')
+            })
+        return jsonify({
+            "success": True,
+            "from_date": from_date_str,
+            "to_date": to_date_str,
+            "total_deals": len(result),
+            "deals": result
+        })
         
 
-        # Show Qualified Symbols with Dates
-        report_html += "<h2>2. Qualified Symbols Summary:</h2>"
-        if qualified_per_day:
-            report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
-            report_html += """
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Symbol</th>
-                        <th>Company Name</th>
-                        <th>Volume</th>
-                        <th>Volume Requirement</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
+    #     # Step 4: Generate HTML Report
+    #     print("\n4. Generating HTML report...")
+    #     report_html = "<h1>Comprehensive Stock Report</h1>"
+    #     report_html += f"<h3>Analysis Period: {from_date_str} to {to_date_str}</h3>"
+
+    #     # Show Volume Analysis Table First
+    #     report_html += "<h2>1. Daily Volume Analysis:</h2>"
+    #     if per_day_analysis:
+    #         report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
+    #         report_html += """
+    #             <thead>
+    #                 <tr>
+    #                     <th>Date</th>
+    #                     <th>Symbol</th>
+    #                     <th>Company Name</th>
+    #                     <th>Total Volume</th>
+    #                     <th>Outstanding Shares</th>
+    #                     <th>Required Volume Difference</th>
+    #                     <th>Qualified</th>
+    #                 </tr>
+    #             </thead>
+    #             <tbody>
+    #         """
+    #         # Sort by date and symbol
+    #         sorted_analysis = sorted(per_day_analysis, key=lambda x: (x['date'], x['symbol']))
             
-            # Sort qualified entries by date and symbol
-            sorted_qualified = sorted(qualified_per_day, key=lambda x: (x['date'], x['symbol']))
+    #         for analysis in sorted_analysis:
+    #             qualified_status = "✅" if analysis['qualified'] else "❌"
+    #             report_html += f"""
+    #                 <tr>
+    #                     <td>{analysis['date']}</td>
+    #                     <td>{analysis['symbol']}</td>
+    #                     <td>{analysis['company_name']}</td>
+    #                     <td>{analysis['total_volume']:,}</td>
+    #                     <td>{analysis['outstanding_shares']:,}</td>
+    #                     <td>{analysis['qualified_percentage_criteria']:,}</td>
+    #                     <td>{qualified_status}</td>
+    #                 </tr>
+    #             """
+    #         report_html += "</tbody></table>"
+    #     else:
+    #         report_html += "<p>No volume analysis data available.</p>"
+        
+
+    #     # Show Qualified Symbols with Dates
+    #     report_html += "<h2>2. Qualified Symbols Summary:</h2>"
+    #     if qualified_per_day:
+    #         report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
+    #         report_html += """
+    #             <thead>
+    #                 <tr>
+    #                     <th>Date</th>
+    #                     <th>Symbol</th>
+    #                     <th>Company Name</th>
+    #                     <th>Volume</th>
+    #                     <th>Volume Requirement</th>
+    #                 </tr>
+    #             </thead>
+    #             <tbody>
+    #         """
             
-            # Group by symbol to show latest qualification date
-            symbol_data = {}
-            for entry in sorted_qualified:
-                symbol = entry['symbol']
-                if symbol not in symbol_data:
-                    symbol_data[symbol] = entry
+    #         # Sort qualified entries by date and symbol
+    #         sorted_qualified = sorted(qualified_per_day, key=lambda x: (x['date'], x['symbol']))
+            
+    #         # Group by symbol to show latest qualification date
+    #         symbol_data = {}
+    #         for entry in sorted_qualified:
+    #             symbol = entry['symbol']
+    #             if symbol not in symbol_data:
+    #                 symbol_data[symbol] = entry
                 
-                report_html += f"""
-                    <tr>
-                        <td>{entry['date']}</td>
-                        <td>{entry['symbol']}</td>
-                        <td>{entry['company_name']}</td>
-                        <td>{entry['total_volume']:,}</td>
-                        <td>{entry['qualified_percentage_criteria']:,}</td>
-                    </tr>
-                """
-            report_html += "</tbody></table>"
+    #             report_html += f"""
+    #                 <tr>
+    #                     <td>{entry['date']}</td>
+    #                     <td>{entry['symbol']}</td>
+    #                     <td>{entry['company_name']}</td>
+    #                     <td>{entry['total_volume']:,}</td>
+    #                     <td>{entry['qualified_percentage_criteria']:,}</td>
+    #                 </tr>
+    #             """
+    #         report_html += "</tbody></table>"
             
-            # Add a summary count
-            report_html += f"<p>Total unique qualified symbols: {len(set(data['symbol'] for data in qualified_per_day))}</p>"
-        else:
-            report_html += "<p>No symbols qualified based on volume criteria.</p>"
+    #         # Add a summary count
+    #         report_html += f"<p>Total unique qualified symbols: {len(set(data['symbol'] for data in qualified_per_day))}</p>"
+    #     else:
+    #         report_html += "<p>No symbols qualified based on volume criteria.</p>"
 
-        # Replace the Bulk Deals section in bulkDealsReport function with:
+    #     # Replace the Bulk Deals section in bulkDealsReport function with:
 
-        # Replace the Bulk Deals section with:
+    #     # Replace the Bulk Deals section with:
 
-        # Show All Bulk Deals first
-        report_html += "<h2>3. All Bulk Deals in Period:</h2>"
-        if all_bulk_deals_in_period:
-            report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
-            report_html += """
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Symbol</th>
-                        <th>Company Name</th>
-                        <th>Client Name</th>
-                        <th>Buy/Sell</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Remarks</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            for deal in all_bulk_deals_in_period:
-                report_html += f"""
-                    <tr>
-                        <td>{deal.get('BD_DT_DATE', 'N/A')}</td>
-                        <td>{deal.get('BD_SYMBOL', 'N/A')}</td>
-                        <td>{deal.get('BD_SCRIP_NAME', 'N/A')}</td>
-                        <td>{deal.get('BD_CLIENT_NAME', 'N/A')}</td>
-                        <td>{deal.get('BD_BUY_SELL', 'N/A')}</td>
-                        <td>{deal.get('BD_QTY_TRD', 'N/A'):,}</td>
-                        <td>₹{deal.get('BD_TP_WATP', 'N/A'):,.2f}</td>
-                        <td>{deal.get('BD_REMARKS', 'N/A')}</td>
-                    </tr>
-                """
-            report_html += "</tbody></table>"
+    #     # Show All Bulk Deals first
+    #     report_html += "<h2>3. All Bulk Deals in Period:</h2>"
+    #     if all_bulk_deals_in_period:
+    #         report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
+    #         report_html += """
+    #             <thead>
+    #                 <tr>
+    #                     <th>Date</th>
+    #                     <th>Symbol</th>
+    #                     <th>Company Name</th>
+    #                     <th>Client Name</th>
+    #                     <th>Buy/Sell</th>
+    #                     <th>Quantity</th>
+    #                     <th>Price</th>
+    #                     <th>Remarks</th>
+    #                 </tr>
+    #             </thead>
+    #             <tbody>
+    #         """
+    #         for deal in all_bulk_deals_in_period:
+    #             report_html += f"""
+    #                 <tr>
+    #                     <td>{deal.get('BD_DT_DATE', 'N/A')}</td>
+    #                     <td>{deal.get('BD_SYMBOL', 'N/A')}</td>
+    #                     <td>{deal.get('BD_SCRIP_NAME', 'N/A')}</td>
+    #                     <td>{deal.get('BD_CLIENT_NAME', 'N/A')}</td>
+    #                     <td>{deal.get('BD_BUY_SELL', 'N/A')}</td>
+    #                     <td>{deal.get('BD_QTY_TRD', 'N/A'):,}</td>
+    #                     <td>₹{deal.get('BD_TP_WATP', 'N/A'):,.2f}</td>
+    #                     <td>{deal.get('BD_REMARKS', 'N/A')}</td>
+    #                 </tr>
+    #             """
+    #         report_html += "</tbody></table>"
             
-            # Add summary for all deals
-            total_all_deals = len(all_bulk_deals_in_period)
-            total_all_buy_deals = sum(1 for deal in all_bulk_deals_in_period if deal.get('BD_BUY_SELL') == 'BUY')
-            total_all_sell_deals = sum(1 for deal in all_bulk_deals_in_period if deal.get('BD_BUY_SELL') == 'SELL')
+    #         # Add summary for all deals
+    #         total_all_deals = len(all_bulk_deals_in_period)
+    #         total_all_buy_deals = sum(1 for deal in all_bulk_deals_in_period if deal.get('BD_BUY_SELL') == 'BUY')
+    #         total_all_sell_deals = sum(1 for deal in all_bulk_deals_in_period if deal.get('BD_BUY_SELL') == 'SELL')
             
-            report_html += f"""
-                <div style='margin-top: 20px;'>
-                    <p><strong>All Deals Summary:</strong></p>
-                    <ul>
-                        <li>Total Bulk Deals: {total_all_deals}</li>
-                        <li>Buy Deals: {total_all_buy_deals}</li>
-                        <li>Sell Deals: {total_all_sell_deals}</li>
-                    </ul>
-                </div>
-            """
-        else:
-            report_html += "<p>No bulk deals found in the specified period.</p>"
+    #         report_html += f"""
+    #             <div style='margin-top: 20px;'>
+    #                 <p><strong>All Deals Summary:</strong></p>
+    #                 <ul>
+    #                     <li>Total Bulk Deals: {total_all_deals}</li>
+    #                     <li>Buy Deals: {total_all_buy_deals}</li>
+    #                     <li>Sell Deals: {total_all_sell_deals}</li>
+    #                 </ul>
+    #             </div>
+    #         """
+    #     else:
+    #         report_html += "<p>No bulk deals found in the specified period.</p>"
 
-        # Then show Bulk Deals for Qualified Symbols
-        report_html += "<h2>4. Bulk Deals for Qualified Symbols Only:</h2>"
-        if all_bulk_deals:
-            report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
-            report_html += """
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Symbol</th>
-                        <th>Company Name</th>
-                        <th>Client Name</th>
-                        <th>Buy/Sell</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Remarks</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            for deal in all_bulk_deals:
-                report_html += f"""
-                    <tr>
-                        <td>{deal.get('BD_DT_DATE', 'N/A')}</td>
-                        <td>{deal.get('BD_SYMBOL', 'N/A')}</td>
-                        <td>{deal.get('BD_SCRIP_NAME', 'N/A')}</td>
-                        <td>{deal.get('BD_CLIENT_NAME', 'N/A')}</td>
-                        <td>{deal.get('BD_BUY_SELL', 'N/A')}</td>
-                        <td>{deal.get('BD_QTY_TRD', 'N/A'):,}</td>
-                        <td>₹{deal.get('BD_TP_WATP', 'N/A'):,.2f}</td>
-                        <td>{deal.get('BD_REMARKS', 'N/A')}</td>
-                    </tr>
-                """
-            report_html += "</tbody></table>"
+    #     # Then show Bulk Deals for Qualified Symbols
+    #     report_html += "<h2>4. Bulk Deals for Qualified Symbols Only:</h2>"
+    #     if all_bulk_deals:
+    #         report_html += "<table border='1' cellpadding='5' cellspacing='0' style='width:100%; border-collapse: collapse;'>"
+    #         report_html += """
+    #             <thead>
+    #                 <tr>
+    #                     <th>Date</th>
+    #                     <th>Symbol</th>
+    #                     <th>Company Name</th>
+    #                     <th>Client Name</th>
+    #                     <th>Buy/Sell</th>
+    #                     <th>Quantity</th>
+    #                     <th>Price</th>
+    #                     <th>Remarks</th>
+    #                 </tr>
+    #             </thead>
+    #             <tbody>
+    #         """
+    #         for deal in all_bulk_deals:
+    #             report_html += f"""
+    #                 <tr>
+    #                     <td>{deal.get('BD_DT_DATE', 'N/A')}</td>
+    #                     <td>{deal.get('BD_SYMBOL', 'N/A')}</td>
+    #                     <td>{deal.get('BD_SCRIP_NAME', 'N/A')}</td>
+    #                     <td>{deal.get('BD_CLIENT_NAME', 'N/A')}</td>
+    #                     <td>{deal.get('BD_BUY_SELL', 'N/A')}</td>
+    #                     <td>{deal.get('BD_QTY_TRD', 'N/A'):,}</td>
+    #                     <td>₹{deal.get('BD_TP_WATP', 'N/A'):,.2f}</td>
+    #                     <td>{deal.get('BD_REMARKS', 'N/A')}</td>
+    #                 </tr>
+    #             """
+    #         report_html += "</tbody></table>"
             
-            # Add summary statistics for qualified symbols
-            total_deals = len(all_bulk_deals)
-            total_buy_deals = sum(1 for deal in all_bulk_deals if deal.get('BD_BUY_SELL') == 'BUY')
-            total_sell_deals = sum(1 for deal in all_bulk_deals if deal.get('BD_BUY_SELL') == 'SELL')
+    #         # Add summary statistics for qualified symbols
+    #         total_deals = len(all_bulk_deals)
+    #         total_buy_deals = sum(1 for deal in all_bulk_deals if deal.get('BD_BUY_SELL') == 'BUY')
+    #         total_sell_deals = sum(1 for deal in all_bulk_deals if deal.get('BD_BUY_SELL') == 'SELL')
             
-            report_html += f"""
-                <div style='margin-top: 20px;'>
-                    <p><strong>Qualified Symbols Deals Summary:</strong></p>
-                    <ul>
-                        <li>Total Bulk Deals: {total_deals}</li>
-                        <li>Buy Deals: {total_buy_deals}</li>
-                        <li>Sell Deals: {total_sell_deals}</li>
-                    </ul>
-                </div>
-            """
-        else:
-            report_html += "<p>No bulk deals found for qualified symbols.</p>"
+    #         report_html += f"""
+    #             <div style='margin-top: 20px;'>
+    #                 <p><strong>Qualified Symbols Deals Summary:</strong></p>
+    #                 <ul>
+    #                     <li>Total Bulk Deals: {total_deals}</li>
+    #                     <li>Buy Deals: {total_buy_deals}</li>
+    #                     <li>Sell Deals: {total_sell_deals}</li>
+    #                 </ul>
+    #             </div>
+    #         """
+    #     else:
+    #         report_html += "<p>No bulk deals found for qualified symbols.</p>"
 
-        # Wrap in HTML template
-        final_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Stock Analysis Report</title>
-            <style>
-                body {{ 
-                    font-family: Arial; 
-                    margin: 20px; 
-                    line-height: 1.6;
-                }}
-                table {{ 
-                    border-collapse: collapse; 
-                    width: 100%; 
-                    margin-bottom: 20px;
-                }}
-                th, td {{ 
-                    padding: 12px 8px; 
-                    text-align: left; 
-                    border: 1px solid #ddd; 
-                }}
-                th {{ 
-                    background-color: #f2f2f2; 
-                    font-weight: bold;
-                }}
-                tr:nth-child(even) {{ 
-                    background-color: #f9f9f9; 
-                }}
-                tr:hover {{
-                    background-color: #f5f5f5;
-                }}
-            </style>
-        </head>
-        <body>
-            {report_html}
-        </body>
-        </html>
-    """
+    #     # Wrap in HTML template
+    #     final_html = f"""
+    #     <!DOCTYPE html>
+    #     <html>
+    #     <head>
+    #         <title>Stock Analysis Report</title>
+    #         <style>
+    #             body {{ 
+    #                 font-family: Arial; 
+    #                 margin: 20px; 
+    #                 line-height: 1.6;
+    #             }}
+    #             table {{ 
+    #                 border-collapse: collapse; 
+    #                 width: 100%; 
+    #                 margin-bottom: 20px;
+    #             }}
+    #             th, td {{ 
+    #                 padding: 12px 8px; 
+    #                 text-align: left; 
+    #                 border: 1px solid #ddd; 
+    #             }}
+    #             th {{ 
+    #                 background-color: #f2f2f2; 
+    #                 font-weight: bold;
+    #             }}
+    #             tr:nth-child(even) {{ 
+    #                 background-color: #f9f9f9; 
+    #             }}
+    #             tr:hover {{
+    #                 background-color: #f5f5f5;
+    #             }}
+    #         </style>
+    #     </head>
+    #     <body>
+    #         {report_html}
+    #     </body>
+    #     </html>
+    # """
 
-        print("\n=== Report Generation Complete ===")
-        return render_template_string(final_html)
+    #     print("\n=== Report Generation Complete ===")
+    #     return render_template_string(final_html)
 
     except Exception as e:
         print(f"Error generating report: {str(e)}")
-        traceback.print_exc()
-        return render_template_string(f"<h1>Error</h1><p>{str(e)}</p>"), 500
+        
 
 if __name__ == "__main__":
     
