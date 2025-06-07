@@ -25,13 +25,13 @@ const Navbar = () => {
               About Us
             </a>
             <a
-              href="api/hfts"
+              href="hfts"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               HFTs
             </a>
             <a
-              href="api/bulk-deals"
+              href="bulk-deals"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Bulk_Deals
